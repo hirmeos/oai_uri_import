@@ -78,7 +78,7 @@ def get_oai(url):
 
 
 def run(respository, metadata_prefix, oai_set):
-    tempname = 'tmp.xml'
+    tempname = '/tmp/tmp.xml'
     temp = codecs.open(tempname, 'w+b', encoding='utf-8')
     temp.write('<repository>\n')
     regex = '<resumptionToken[^>]*>(.*)</resumptionToken>'
