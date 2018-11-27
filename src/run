@@ -1,0 +1,29 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import subprocess
+
+OAI_REPOSITORY = os.environ['OAI_REPOSITORY']
+OAI_METADATA_PREFIX = os.environ['OAI_METADATA_PREFIX']
+OAI_SET = os.environ['OAI_SET']
+FILENAME = '/tmp/' + os.environ['FILENAME']
+
+
+def outstream(filename):
+    return open(filename, "w")
+
+
+def instream(filename):
+    return open(filename, "r")
+
+
+def run():
+    cmd = ['./retrieve_oai_records',
+           '--repository', OAI_REPOSITORY,
+           '--metadata-prefix', OAI_METADATA_PREFIX,
+           '--set', OAI_SET]
+    subprocess.call(cmd, stdout=outstream(FILENAME))
+
+
+if __name__ == '__main__':
+    run()
