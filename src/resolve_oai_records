@@ -1,0 +1,243 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import sys
+import json
+import urllib
+import httplib2
+import xml.etree.ElementTree
+from optparse import OptionParser
+
+
+URI_API_ENDP = os.environ['URI_API_ENDP']
+URI_API_USER = os.environ['URI_API_USER']
+URI_API_PASS = os.environ['URI_API_PASS']
+AUTH_API_ENDP = os.environ['AUTH_API_ENDP']
+URI_API_WORKS = os.environ['URI_API_WORKS']
+URI_API_URIS = os.environ['URI_API_URIS']
+URI_SCHEME = os.environ['URI_SCHEME']
+EXCLUDED_TITLES = json.loads(os.getenv('EXCLUDED_TITLES'))
+CROSSREF_CHAPTER_TYPES = ['book-chapter', 'book-part',
+                          'book-section', 'component']
+CROSSREF_BOOK_TYPES = ['book', 'monograph', 'edited-book',
+                       'reference-book', 'journal-issue']
+# we map work types returned by the harvester to the standarised ones we got
+# from crossref and use in the translation service, ignoring those we don't
+# care about (e.g. index)
+TYPES_MAP = {
+  'book': CROSSREF_BOOK_TYPES,
+  'chapter': CROSSREF_CHAPTER_TYPES,
+  'appendix': CROSSREF_CHAPTER_TYPES,
+  'bibliography': CROSSREF_CHAPTER_TYPES,
+  'foreword': CROSSREF_CHAPTER_TYPES,
+  'source': CROSSREF_CHAPTER_TYPES,
+  'afterword': CROSSREF_CHAPTER_TYPES,
+  'other': [],
+  'part': [],
+  'index': [],
+  'adressebibliographique': []
+}
+ARGS = [
+    {
+        'val': '--metadata-prefix',
+        'dest': 'prefix',
+        'action': 'store',
+        'help': 'metadataPrefix used by the repository'
+    }
+]
+
+
+def get_options(args):
+    parser = OptionParser()
+    for arg in args:
+        parser.add_option(arg['val'], dest=arg['dest'],
+                          action=arg['action'], help=arg['help'])
+    options, rest = parser.parse_args()
+
+    assert rest == []
+    assert options.prefix
+    return options
+
+
+def get_token(url, email, passwd):
+    h = httplib2.Http()
+    credentials = {'email': email, 'password': passwd}
+    headers = {'content-type': 'application/json'}
+    res, content = h.request(url, 'POST', json.dumps(credentials), headers)
+    try:
+        assert res.status == 200
+    except AssertionError:
+        raise ValueError(content)
+    return json.loads(content)['data'][0]['token']
+
+
+def submit(url, data):
+    h = httplib2.Http()
+    headers = {'content-type': 'application/json',
+               'Authorization': 'Bearer ' + API_JWTOKEN}
+    res, content = h.request(url, 'POST', json.dumps(data), headers)
+    try:
+        assert res.status == 200
+    except AssertionError:
+        sys.stderr.write(content)
+        sys.exit(1)
+
+
+def translate_title(title, work_types, isbn, url=''):
+    encoded_title = urllib.quote(title.encode('utf8'))
+    types = compile_work_types(work_types)
+    req = "%s?title=%s&URI=%s&filter=uri_scheme:%s,%s&strict=true" \
+          % (URI_API_ENDP, encoded_title, isbn, URI_SCHEME, types)
+    h = httplib2.Http()
+    res, content = h.request(req, 'GET', headers={'Authorization': AUTH})
+    r = json.loads(content)
+    try:
+        assert res.status == 200
+    except AssertionError:
+        if title not in EXCLUDED_TITLES:
+            print >>sys.stderr, "%s: %s (%s)(%s)" % \
+                (r['message'], r['parameters']['title'],
+                 r['parameters']['URI'], url)
+        return []
+    return r['data']
+
+
+def get_work(uuid):
+    req = "%s?uuid=%s" % (URI_API_WORKS, uuid)
+    h = httplib2.Http()
+    res, content = h.request(req, 'GET', headers={'Authorization': AUTH})
+    try:
+        assert res.status == 200
+    except AssertionError:
+        r = json.loads(content)
+        print >>sys.stderr, r['message']
+        raise
+    return json.loads(content)['data'][0]
+
+
+def is_url_stored(url):
+    encoded_url = urllib.quote(url)
+    req = "%s?URI=%s&filter=uri_scheme:%s" % \
+        (URI_API_ENDP, encoded_url, URI_SCHEME)
+    h = httplib2.Http()
+    res, content = h.request(req, 'GET', headers={'Authorization': AUTH})
+    return res.status == 200
+
+
+def is_invalid_score(current, candidate, threshold=1):
+    return (current == 0 and candidate > current) \
+           or (candidate > current + threshold)
+
+
+def compile_work_types(types):
+    val = ''
+    i = 1
+    for t in types:
+        val += 'work_type:' + t
+        val += ',' if i < len(types) else ''
+        i += 1
+    return val
+
+
+def is_mets_title(attribute):
+    return mets_tag_matches(attribute, 'title')
+
+
+def is_mets_type(attribute):
+    return mets_tag_matches(attribute, 'type')
+
+
+def is_mets_identifier(attribute):
+    return mets_tag_matches(attribute, 'identifier')
+
+
+def mets_tag_matches(attribute, value):
+    try:
+        assert attribute.tag[-len(value):] == value
+    except (AssertionError, AttributeError):
+        return False
+    return True
+
+
+def is_mets_isbn(a):
+    try:
+        assert is_mets_identifier(a) and a.text[:8] == 'urn:isbn'
+    except (AssertionError, AttributeError):
+        return False
+    return True
+
+
+def is_mets_uri(a):
+    try:
+        assert is_mets_identifier(a) and a.attrib['scheme'] == 'URI'
+    except (AssertionError, AttributeError, KeyError):
+        return False
+    return True
+
+
+def get_records():
+    tree = xml.etree.ElementTree.parse(sys.stdin)
+    root = tree.getroot()
+    for content in root:
+        for section in [a for a in content if a.tag == 'metadata']:
+            for schema in section:
+                for record in [c for c in schema if c.tag[-6:] == 'dmdSec']:
+                    for wrap in record:
+                        for data in wrap:
+                            title = wtype = url = isbn = ''
+                            for attr in data:
+                                if is_mets_title(attr):
+                                    title = attr.text
+                                elif is_mets_type(attr):
+                                    wtype = attr.text
+                                elif is_mets_isbn(attr):
+                                    isbn = attr.text
+                                elif is_mets_uri(attr):
+                                    url = attr.text
+                            yield title, wtype, url, isbn
+
+
+def run():
+    for title, wtype, url, isbn in get_records():
+        # we check whether the work type is known, ignored or unknown
+        try:
+            search_types = TYPES_MAP[wtype]
+            assert search_types
+        except KeyError:
+            print >>sys.stderr, "Unrecognised work type in OAI: %s" % (wtype)
+            continue
+        except AssertionError:
+            # type is mapped to an empty list
+            continue
+
+        # we check whether this URL is already known to us
+        try:
+            assert not is_url_stored(url)
+        except AssertionError:
+            continue
+
+        # we try to translate the title to get a matching record
+        records = translate_title(title, search_types, isbn, url)
+        try:
+            assert records and len(records) == 1
+            record = records[0]
+        except AssertionError:
+            continue
+
+        new_uri = {'UUID': record['work']['UUID'],
+                   'URI': url,
+                   'canonical': 'false'}
+        submit(URI_API_URIS, new_uri)
+
+
+API_JWTOKEN = get_token(AUTH_API_ENDP, URI_API_USER, URI_API_PASS)
+AUTH = 'Bearer ' + API_JWTOKEN
+
+
+if __name__ == '__main__':
+    options = get_options(ARGS)
+    try:
+        assert options.prefix == 'mets'
+    except AssertionError:
+        print >>sys.stderr, "Only mets metadata scheme is currently supported."
+    run()
