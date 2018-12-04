@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import re
+import os
+import sys
+import time
+import codecs
+import httplib2
+import xml.dom.pulldom
+from optparse import OptionParser
+
+
+USER_AGENT = os.environ['USER_AGENT']
+ATTEMPTS = 1
+MAX_ATTEMPTS = 3
+ARGS = [
+    {
+        'val': '--repository',
+        'dest': 'repository',
+        'action': 'store',
+        'help': 'Root URL of the OAI repository'
+    }, {
+        'val': '--metadata-prefix',
+        'dest': 'prefix',
+        'action': 'store',
+        'help': 'metadataPrefix used by the repository'
+    }, {
+        'val': '--set',
+        'dest': 'set',
+        'action': 'store',
+        'help': 'A particular set to query (optional)'
+    }
+]
+
+
+def get_options(args):
+    parser = OptionParser()
+    for arg in args:
+        parser.add_option(arg['val'], dest=arg['dest'],
+                          action=arg['action'], help=arg['help'])
+    options, rest = parser.parse_args()
+
+    assert rest == []
+    assert options.repository and options.prefix
+    return options
+
+
+def build_url(repository, prefix, oai_set=''):
+    url = '%s?verb=ListRecords&metadataPrefix=%s' % (repository, prefix)
+    url += '&set=%s' % (oai_set) if oai_set else ''
+    return url
+
+
+def build_resumption_url(repository, token):
+    return '%s?verb=ListRecords&resumptionToken=%s' % (repository, token)
+
+
+def get_oai(url):
+    global ATTEMPTS
+    headers = {'Accept': 'text/html', 'Accept-Encoding': 'compress, deflate',
+               'User-Agent': USER_AGENT}
+    res, content = httplib2.Http().request(url, 'GET', headers=headers)
+    if res.status == 200:
+        ATTEMPTS = 1
+        return content
+    elif res.status in [429, 503, 504]:
+        try:
+            time.sleep(int(res['retry-after']))
+        except (AttributeError, ValueError, IOError, KeyError):
+            pass
+        if ATTEMPTS <= MAX_ATTEMPTS:
+            ATTEMPTS += 1
+            return get_oai(url)
+    print >>sys.stderr, "Error (%s) after %d attempts: %s" % \
+        (res.status, res.reason, ATTEMPTS)
+    sys.exit(1)
+
+
+def run(respository, metadata_prefix, oai_set):
+    tempname = '/tmp/tmp.xml'
+    temp = codecs.open(tempname, 'w+b', encoding='utf-8')
+    temp.write('<repository>\n')
+    regex = '<resumptionToken[^>]*>(.*)</resumptionToken>'
+    url = build_url(respository, metadata_prefix, oai_set)
+    data = get_oai(url)
+
+    while True:
+        events = xml.dom.pulldom.parseString(data)
+        for (event, node) in events:
+            if event == "START_ELEMENT" and node.tagName == 'record':
+                events.expandNode(node)
+                node.writexml(temp)
+        try:
+            token = re.search(regex, data).group(1)
+            assert token
+        except (AttributeError, IndexError, AssertionError):
+            break
+        url = build_resumption_url(respository, token)
+        data = get_oai(url)
+    temp.write('\n</repository>\n')
+    temp.close()
+    temp_stream = open(tempname, 'r')
+    for line in open(tempname, 'r'):
+        print line
+    temp_stream.close()
+
+
+if __name__ == '__main__':
+    options = get_options(ARGS)
+    run(options.repository, options.prefix, options.set)

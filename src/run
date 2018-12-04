@@ -1,0 +1,47 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import sys
+import subprocess
+
+OAI_REPOSITORY = os.environ['OAI_REPOSITORY']
+OAI_METADATA_PREFIX = os.environ['OAI_METADATA_PREFIX']
+OAI_SET = os.environ['OAI_SET']
+FILENAME = '/tmp/' + os.environ['FILENAME']
+
+
+def outstream(filename):
+    return open(filename, "w")
+
+
+def instream(filename):
+    return open(filename, "r")
+
+
+def exists_and_not_empty(filename):
+    try:
+        return os.path.getsize(filename) > 0
+    except (AssertionError, OSError):
+        return False
+
+
+def run():
+    cmd = ['./retrieve_oai_records',
+           '--repository', OAI_REPOSITORY,
+           '--metadata-prefix', OAI_METADATA_PREFIX,
+           '--set', OAI_SET]
+    subprocess.call(cmd, stdout=outstream(FILENAME))
+
+    try:
+        assert exists_and_not_empty(FILENAME)
+    except AssertionError:
+        print >>sys.stderr, "Malformed XML file: %s; failed to retrieve %s" % \
+            (FILENAME, OAI_REPOSITORY)
+        sys.exit(1)
+
+    cmd = ['./resolve_oai_records', '--metadata-prefix', OAI_METADATA_PREFIX]
+    subprocess.call(cmd, stdin=instream(FILENAME))
+
+
+if __name__ == '__main__':
+    run()
