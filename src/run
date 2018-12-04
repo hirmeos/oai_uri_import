@@ -39,7 +39,8 @@ def run():
             (FILENAME, OAI_REPOSITORY)
         sys.exit(1)
 
-    subprocess.call('./resolve_oai_records', stdin=instream(FILENAME))
+    cmd = ['./resolve_oai_records', '--metadata-prefix', OAI_METADATA_PREFIX]
+    subprocess.call(cmd, stdin=instream(FILENAME))
 
 
 if __name__ == '__main__':
