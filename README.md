@@ -1,4 +1,5 @@
 # OAI URI import
+[![Build Status](https://travis-ci.org/hirmeos/oai_uri_import.svg?branch=master)](https://travis-ci.org/hirmeos/oai_uri_import)
 
 Query an OAI repository and store found URIs in the identifier translation service
 
