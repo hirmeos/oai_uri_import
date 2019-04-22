@@ -3,8 +3,10 @@
 import os
 import sys
 import json
-import urllib
 import httplib2
+import urllib.parse
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree
 from optparse import OptionParser
 
@@ -84,7 +86,7 @@ def submit(url, data):
 
 
 def translate_title(title, work_types, isbn, url=''):
-    encoded_title = urllib.quote(title.encode('utf8'))
+    encoded_title = urllib.parse.quote(title.encode('utf8'))
     types = compile_work_types(work_types)
     req = "%s?title=%s&URI=%s&filter=uri_scheme:%s,%s&strict=true" \
           % (URI_API_ENDP, encoded_title, isbn, URI_SCHEME, types)
@@ -95,9 +97,9 @@ def translate_title(title, work_types, isbn, url=''):
         assert res.status == 200
     except AssertionError:
         if title not in EXCLUDED_TITLES:
-            print >>sys.stderr, "%s: %s (%s)(%s)" % \
-                (r['message'], r['parameters']['title'],
-                 r['parameters']['URI'], url)
+            print("%s: %s (%s)(%s)" %
+                  (r['message'], r['parameters']['title'],
+                   r['parameters']['URI'], url), file=sys.stderr)
         return []
     return r['data']
 
@@ -110,13 +112,13 @@ def get_work(uuid):
         assert res.status == 200
     except AssertionError:
         r = json.loads(content)
-        print >>sys.stderr, r['message']
+        print(r['message'], file=sys.stderr)
         raise
     return json.loads(content)['data'][0]
 
 
 def is_url_stored(url):
-    encoded_url = urllib.quote(url)
+    encoded_url = urllib.parse.quote(url)
     req = "%s?URI=%s&filter=uri_scheme:%s" % \
         (URI_API_ENDP, encoded_url, URI_SCHEME)
     h = httplib2.Http()
@@ -204,7 +206,8 @@ def run():
             search_types = TYPES_MAP[wtype]
             assert search_types
         except KeyError:
-            print >>sys.stderr, "Unrecognised work type in OAI: %s" % (wtype)
+            print("Unrecognised work type in OAI: %s" % (wtype),
+                  file=sys.stderr)
             continue
         except AssertionError:
             # type is mapped to an empty list
@@ -239,5 +242,6 @@ if __name__ == '__main__':
     try:
         assert options.prefix == 'mets'
     except AssertionError:
-        print >>sys.stderr, "Only mets metadata scheme is currently supported."
+        print("Only mets metadata scheme is currently supported.",
+              file=sys.stderr)
     run()
