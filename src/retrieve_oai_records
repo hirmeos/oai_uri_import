@@ -72,8 +72,8 @@ def get_oai(url):
         if ATTEMPTS <= MAX_ATTEMPTS:
             ATTEMPTS += 1
             return get_oai(url)
-    print >>sys.stderr, "Error (%s) after %d attempts: %s" % \
-        (res.status, res.reason, ATTEMPTS)
+    print("Error (%s) after %d attempts: %s" %
+          (res.status, res.reason, ATTEMPTS), file=sys.stderr)
     sys.exit(1)
 
 
@@ -102,7 +102,7 @@ def run(respository, metadata_prefix, oai_set):
     temp.close()
     temp_stream = open(tempname, 'r')
     for line in open(tempname, 'r'):
-        print line
+        print(line)
     temp_stream.close()
 
 

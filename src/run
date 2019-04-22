@@ -35,8 +35,8 @@ def run():
     try:
         assert exists_and_not_empty(FILENAME)
     except AssertionError:
-        print >>sys.stderr, "Malformed XML file: %s; failed to retrieve %s" % \
-            (FILENAME, OAI_REPOSITORY)
+        print("Malformed XML file: %s; failed to retrieve %s" %
+              (FILENAME, OAI_REPOSITORY), file=sys.stderr)
         sys.exit(1)
 
     cmd = ['./resolve_oai_records', '--metadata-prefix', OAI_METADATA_PREFIX]
