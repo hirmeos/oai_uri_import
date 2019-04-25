@@ -63,7 +63,7 @@ def get_oai(url):
     res, content = httplib2.Http().request(url, 'GET', headers=headers)
     if res.status == 200:
         ATTEMPTS = 1
-        return content
+        return content.decode('utf-8')
     elif res.status in [429, 503, 504]:
         try:
             time.sleep(int(res['retry-after']))
