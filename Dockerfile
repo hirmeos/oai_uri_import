@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:3.9
 
 WORKDIR /usr/src/app
 
@@ -7,7 +7,5 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     rm requirements.txt
 
 COPY ./src/* ./
-
-RUN flake8 ./*
 
 CMD ["python", "run"]
