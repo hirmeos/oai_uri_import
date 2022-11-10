@@ -3,7 +3,7 @@
 import os
 import sys
 import json
-import httplib2
+import requests
 import urllib.parse
 import urllib.error
 import urllib.request
@@ -62,27 +62,28 @@ def get_options(args):
 
 
 def get_token(url, email, passwd):
-    h = httplib2.Http()
     credentials = {'email': email, 'password': passwd}
     headers = {'content-type': 'application/json'}
-    res, content = h.request(url, 'POST', json.dumps(credentials), headers)
     try:
-        assert res.status == 200
-    except AssertionError:
-        raise ValueError(content)
-    return json.loads(content)['data'][0]['token']
+        res = requests.post(url, json=credentials, headers=headers)
+        if res.status_code != 200:
+            raise ValueError(res)
+        return res.json()['data'][0]['token']
+    except (KeyError, TypeError, ValueError, requests.exceptions.RequestException):
+        sys.stderr.write(res)
+        raise ValueError(res)
 
 
 def submit(url, data):
-    h = httplib2.Http()
     headers = {'content-type': 'application/json',
                'Authorization': 'Bearer ' + API_JWTOKEN}
-    res, content = h.request(url, 'POST', json.dumps(data), headers)
     try:
-        assert res.status == 200
-    except AssertionError:
-        sys.stderr.write(content)
-        sys.exit(1)
+        res = requests.post(url, json=data, headers=headers)
+        if res.status_code != 200:
+            raise ValueError(res)
+    except (ValueError, requests.exceptions.RequestException):
+        sys.stderr.write(res)
+        raise ValueError(res)
 
 
 def translate_title(title, work_types, isbn, url=''):
@@ -90,12 +91,9 @@ def translate_title(title, work_types, isbn, url=''):
     types = compile_work_types(work_types)
     req = "%s?title=%s&URI=%s&filter=uri_scheme:%s,%s&strict=true" \
           % (URI_API_ENDP, encoded_title, isbn, URI_SCHEME, types)
-    h = httplib2.Http()
-    res, content = h.request(req, 'GET', headers={'Authorization': AUTH})
-    r = json.loads(content)
-    try:
-        assert res.status == 200
-    except AssertionError:
+    res = requests.get(req, headers={'Authorization': AUTH})
+    r = res.json()
+    if res.status_code != 200:
         if title not in EXCLUDED_TITLES:
             print("%s: %s (%s)(%s)" %
                   (r['message'], r['parameters']['title'],
@@ -105,25 +103,22 @@ def translate_title(title, work_types, isbn, url=''):
 
 
 def get_work(uuid):
-    req = "%s?uuid=%s" % (URI_API_WORKS, uuid)
-    h = httplib2.Http()
-    res, content = h.request(req, 'GET', headers={'Authorization': AUTH})
+    url = "%s?uuid=%s" % (URI_API_WORKS, uuid)
     try:
-        assert res.status == 200
-    except AssertionError:
-        r = json.loads(content)
-        print(r['message'], file=sys.stderr)
+        res = requests.get(url, headers={'Authorization': AUTH})
+        if res.status_code != 200:
+            raise ValueError(res)
+        return res.json()['data'][0]
+    except ValueError:
+        print(res.json()['message'], file=sys.stderr)
         raise
-    return json.loads(content)['data'][0]
 
 
 def is_url_stored(url):
     encoded_url = urllib.parse.quote(url)
-    req = "%s?URI=%s&filter=uri_scheme:%s" % \
-        (URI_API_ENDP, encoded_url, URI_SCHEME)
-    h = httplib2.Http()
-    res, content = h.request(req, 'GET', headers={'Authorization': AUTH})
-    return res.status == 200
+    req = "%s?URI=%s&filter=uri_scheme:%s" % (URI_API_ENDP, encoded_url, URI_SCHEME)
+    res = requests.get(req, headers={'Authorization': AUTH})
+    return res.status_code == 200
 
 
 def is_invalid_score(current, candidate, threshold=1):
